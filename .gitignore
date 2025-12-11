@@ -39,3 +39,6 @@ Thumbs.db
 
 # Docker volumes
 .docker/
+
+# Interview/demo preparation files
+DEMO_GUIDE.md
