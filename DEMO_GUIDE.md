@@ -131,7 +131,106 @@ go run starter/main.go -order-id=FAIL-001 -amount=15000.00 -items="expensive"
 - Business rules enforced
 - Proper error handling and reporting
 
-### 7. Code Walkthrough (8 minutes)
+### 7. Workflow Versioning Demo (3 minutes)
+
+#### Method 1: Test Version 2 (Current - Child Workflow)
+
+```bash
+# Start a workflow - it will use Version 2
+go run starter/main.go -order-id=VERSION-2-DEMO -amount=100.00 -items="versioning-demo"
+
+# Watch worker logs for this message:
+# "Processing payment via child workflow (v2)"
+
+# Verify version marker in CLI:
+docker exec temporal-order-processing_temporal-admin-tools_1 \
+  tctl workflow show --workflow_id=order-workflow-VERSION-2-DEMO | grep -A 5 "MarkerRecorded"
+
+# Expected output:
+#   MarkerRecorded  {MarkerName:Version,
+#                    Details:map{change-id:["payment-processing-change"],
+#                    version:[2]}, ...}
+#   StartChildWorkflowExecutionInitiated  {WorkflowId:payment-VERSION-2-DEMO, ...}
+
+# Query the workflow status:
+go run starter/main.go -action=query -workflow-id=order-workflow-VERSION-2-DEMO
+```
+
+#### Method 2: View Version Marker in Temporal UI
+
+```bash
+# Open Temporal UI
+open http://localhost:8080
+
+# Steps:
+# 1. Click on workflow: order-workflow-VERSION-2-DEMO
+# 2. Go to "History" tab
+# 3. Look for event #11: "MarkerRecorded"
+#    - MarkerName: "Version"
+#    - change-id: "payment-processing-change"
+#    - version: 2
+# 4. Next event #13: "StartChildWorkflowExecutionInitiated"
+#    - WorkflowId: payment-VERSION-2-DEMO
+#    - WorkflowType: PaymentWorkflow
+```
+
+#### How to Demonstrate "Old Version" Behavior
+
+**Important:** Since versioning was just implemented, all new workflows use Version 2. To demonstrate old vs new for your interview:
+
+**Approach 1: Explain the Code Path**
+```bash
+# Show the code in workflows/order_workflow.go:126-180
+# Explain:
+# - DefaultVersion path: Uses activity directly (lines 130-150)
+# - Version 2 path: Uses child workflow (lines 152-180)
+# - If a workflow was running BEFORE we deployed this code,
+#   it would continue on DefaultVersion path
+# - All NEW workflows use Version 2 path
+```
+
+**Approach 2: Check Worker Logs for Evidence**
+```bash
+# Version 2 workflows show:
+grep "Processing payment via child workflow (v2)" worker.log
+
+# Old version workflows would show (if they existed):
+grep "Processing payment via activity (legacy version)" worker.log
+
+# You'll only see Version 2 logs since all current workflows are new
+```
+
+**Talking Points:**
+- `workflow.GetVersion` enables safe workflow evolution
+- Running workflows continue with their original code path
+- New workflows automatically use the latest version
+- Version marker permanently recorded in history for auditability
+- Allows zero-downtime deployments when changing workflow logic
+- The version number is stored in the workflow execution history
+- If we had workflows running before this deployment, they would continue using DefaultVersion
+
+**Explain the Implementation:**
+```go
+// workflows/order_workflow.go:126
+version := workflow.GetVersion(ctx, "payment-processing-change", workflow.DefaultVersion, 2)
+
+if version == workflow.DefaultVersion {
+    // OLD VERSION: Activity-based payment (legacy)
+    // This path is for workflows that started BEFORE we deployed this code
+    logger.Info("Processing payment via activity (legacy version)")
+    workflow.ExecuteActivity(ctx, "ProcessPayment", ...)
+} else {
+    // NEW VERSION 2: Child workflow payment (current)
+    // All new workflows use this path
+    logger.Info("Processing payment via child workflow (v2)")
+    workflow.ExecuteChildWorkflow(ctx, PaymentWorkflowName, ...)
+}
+```
+
+**Interview Explanation:**
+"The versioning implementation ensures backward compatibility. If we had long-running workflows when we deployed this change, those workflows would continue executing the old activity-based payment logic. Meanwhile, all newly started workflows would use the new child workflow approach. This is visible in the workflow history through the MarkerRecorded event, which permanently records which version path was taken."
+
+### 8. Code Walkthrough (8 minutes)
 
 #### a) Main Workflow (`workflows/order_workflow.go`)
 

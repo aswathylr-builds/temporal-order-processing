@@ -116,37 +116,70 @@ func OrderWorkflow(ctx workflow.Context, order models.Order) error {
 		return nil
 	}
 
-	// Step 2: Process payment using child workflow
+	// Step 2: Process payment with versioning for backward compatibility
 	state.Stage = models.StagePayment
 	state.LastUpdated = workflow.Now(ctx)
-	logger.Info("Processing payment via child workflow", "order_id", order.ID)
 
-	// Configure child workflow options
-	childWorkflowOptions := workflow.ChildWorkflowOptions{
-		WorkflowID:               fmt.Sprintf("payment-%s", order.ID),
-		WorkflowExecutionTimeout: 2 * time.Minute,
-		RetryPolicy: &RetryPolicy{
-			InitialInterval:    time.Second,
-			BackoffCoefficient: 2.0,
-			MaximumInterval:    10 * time.Second,
-			MaximumAttempts:    3,
-		},
-	}
-	childCtx := workflow.WithChildOptions(ctx, childWorkflowOptions)
+	// Workflow versioning: Allows safe evolution from activity to child workflow
+	// Version 1 (DefaultVersion): Used activity directly (old behavior)
+	// Version 2: Uses child workflow (new behavior)
+	version := workflow.GetVersion(ctx, "payment-processing-change", workflow.DefaultVersion, 2)
 
-	// Execute payment as child workflow
 	var paymentResp *models.PaymentResponse
-	err = workflow.ExecuteChildWorkflow(childCtx, PaymentWorkflowName, order).Get(ctx, &paymentResp)
-	if err != nil {
-		state.Status = models.StatusFailed
-		state.PaymentStatus = "failed"
-		state.LastUpdated = workflow.Now(ctx)
-		logger.Error("Payment child workflow failed", "order_id", order.ID, "error", err)
-		return err
+
+	if version == workflow.DefaultVersion {
+		// OLD VERSION: Process payment using activity directly
+		// This path ensures running workflows continue to work when we deploy new code
+		logger.Info("Processing payment via activity (legacy version)", "order_id", order.ID)
+
+		paymentReq := models.PaymentRequest{
+			OrderID: order.ID,
+			Amount:  order.Amount,
+		}
+
+		var activityResp models.PaymentResponse
+		err = workflow.ExecuteActivity(ctx, "ProcessPayment", paymentReq).Get(ctx, &activityResp)
+		if err != nil {
+			state.Status = models.StatusFailed
+			state.PaymentStatus = "failed"
+			state.LastUpdated = workflow.Now(ctx)
+			logger.Error("Payment processing failed", "order_id", order.ID, "error", err)
+			return err
+		}
+		paymentResp = &activityResp
+		logger.Info("Payment completed via activity", "order_id", order.ID, "transaction_id", paymentResp.TransactionID)
+
+	} else {
+		// NEW VERSION: Process payment using child workflow
+		// All new workflow executions will use this path
+		logger.Info("Processing payment via child workflow (v2)", "order_id", order.ID)
+
+		// Configure child workflow options
+		childWorkflowOptions := workflow.ChildWorkflowOptions{
+			WorkflowID:               fmt.Sprintf("payment-%s", order.ID),
+			WorkflowExecutionTimeout: 2 * time.Minute,
+			RetryPolicy: &RetryPolicy{
+				InitialInterval:    time.Second,
+				BackoffCoefficient: 2.0,
+				MaximumInterval:    10 * time.Second,
+				MaximumAttempts:    3,
+			},
+		}
+		childCtx := workflow.WithChildOptions(ctx, childWorkflowOptions)
+
+		// Execute payment as child workflow
+		err = workflow.ExecuteChildWorkflow(childCtx, PaymentWorkflowName, order).Get(ctx, &paymentResp)
+		if err != nil {
+			state.Status = models.StatusFailed
+			state.PaymentStatus = "failed"
+			state.LastUpdated = workflow.Now(ctx)
+			logger.Error("Payment child workflow failed", "order_id", order.ID, "error", err)
+			return err
+		}
+		logger.Info("Payment completed via child workflow", "order_id", order.ID, "transaction_id", paymentResp.TransactionID)
 	}
 
 	state.PaymentStatus = "completed"
-	logger.Info("Payment completed via child workflow", "order_id", order.ID, "transaction_id", paymentResp.TransactionID)
 
 	// Check for cancellation after payment
 	if cancelRequested {
