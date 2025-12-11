@@ -116,28 +116,37 @@ func OrderWorkflow(ctx workflow.Context, order models.Order) error {
 		return nil
 	}
 
-	// Step 2: Process payment using activity (compatible with encryption)
+	// Step 2: Process payment using child workflow
 	state.Stage = models.StagePayment
 	state.LastUpdated = workflow.Now(ctx)
-	logger.Info("Processing payment", "order_id", order.ID)
+	logger.Info("Processing payment via child workflow", "order_id", order.ID)
 
-	paymentReq := models.PaymentRequest{
-		OrderID: order.ID,
-		Amount:  order.Amount,
+	// Configure child workflow options
+	childWorkflowOptions := workflow.ChildWorkflowOptions{
+		WorkflowID:               fmt.Sprintf("payment-%s", order.ID),
+		WorkflowExecutionTimeout: 2 * time.Minute,
+		RetryPolicy: &RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    10 * time.Second,
+			MaximumAttempts:    3,
+		},
 	}
+	childCtx := workflow.WithChildOptions(ctx, childWorkflowOptions)
 
-	var paymentResp models.PaymentResponse
-	err = workflow.ExecuteActivity(ctx, "ProcessPayment", paymentReq).Get(ctx, &paymentResp)
+	// Execute payment as child workflow
+	var paymentResp *models.PaymentResponse
+	err = workflow.ExecuteChildWorkflow(childCtx, PaymentWorkflowName, order).Get(ctx, &paymentResp)
 	if err != nil {
 		state.Status = models.StatusFailed
 		state.PaymentStatus = "failed"
 		state.LastUpdated = workflow.Now(ctx)
-		logger.Error("Payment processing failed", "order_id", order.ID, "error", err)
+		logger.Error("Payment child workflow failed", "order_id", order.ID, "error", err)
 		return err
 	}
 
 	state.PaymentStatus = "completed"
-	logger.Info("Payment completed", "order_id", order.ID, "transaction_id", paymentResp.TransactionID)
+	logger.Info("Payment completed via child workflow", "order_id", order.ID, "transaction_id", paymentResp.TransactionID)
 
 	// Check for cancellation after payment
 	if cancelRequested {
