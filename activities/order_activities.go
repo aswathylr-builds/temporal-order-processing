@@ -15,8 +15,8 @@ import (
 
 // OrderActivities contains all order-related activities
 type OrderActivities struct {
-	HTTPClient      *http.Client
-	ValidationURL   string
+	HTTPClient    *http.Client
+	ValidationURL string
 }
 
 // NewOrderActivities creates a new instance of OrderActivities
@@ -89,10 +89,10 @@ func (a *OrderActivities) ProcessOrder(ctx context.Context, order models.Order, 
 		logger.Info("Processing order", "order_id", order.ID, "expedited", isExpedited)
 	}
 
-	// Simulate processing time (reduced for demo)
-	processingTime := 2 * time.Second
+	// Simulate processing time (for demo - allows time to send signals)
+	processingTime := 15 * time.Second
 	if isExpedited {
-		processingTime = 1 * time.Second
+		processingTime = 5 * time.Second
 		if isActivityCtx {
 			logger := activity.GetLogger(ctx)
 			logger.Info("Expedited processing enabled", "order_id", order.ID)

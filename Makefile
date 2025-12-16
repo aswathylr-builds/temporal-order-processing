@@ -10,7 +10,7 @@ deps: ## Install Go dependencies
 	go mod download
 	go mod tidy
 
-up: ## Start all services (Temporal, WireMock, etc.)
+infra-up: ## Start all services (Temporal, WireMock, etc.)
 	docker-compose up -d
 	@echo "Waiting for services to start..."
 	@sleep 10

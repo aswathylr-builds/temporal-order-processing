@@ -64,7 +64,7 @@ func main() {
 	w.RegisterActivity(orderActivities.ValidateOrder)
 	w.RegisterActivity(orderActivities.ProcessOrder)
 	w.RegisterActivity(orderActivities.NotifyOrderComplete)
-	w.RegisterActivity(orderActivities.ProcessPayment)
+	w.RegisterActivity(orderActivities.ProcessPayment) // Version 1
 
 	log.Printf("Worker starting on task queue: %s", taskQueue)
 	log.Printf("Validation URL: %s", validationURL)

@@ -41,5 +41,4 @@ Thumbs.db
 .docker/
 
 # Interview/demo preparation files
-DEMO_GUIDE.md
-README_COPY.md
+scratch/

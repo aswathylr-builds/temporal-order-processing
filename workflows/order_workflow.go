@@ -13,7 +13,7 @@ import (
 type RetryPolicy = temporal.RetryPolicy
 
 const (
-	OrderWorkflowName = "OrderProcessingWorkflow"
+	OrderWorkflowName   = "OrderProcessingWorkflow"
 	PaymentWorkflowName = "PaymentWorkflow"
 )
 
@@ -73,9 +73,9 @@ func OrderWorkflow(ctx workflow.Context, order models.Order) error {
 		return nil
 	}
 
-	// Configure activity options with retry policy (optimized for demo)
+	// Configure activity options with retry policy (increased timeout for demo)
 	activityOptions := workflow.ActivityOptions{
-		StartToCloseTimeout:    10 * time.Second,
+		StartToCloseTimeout:    30 * time.Second, // Increased to accommodate 15s processing time
 		ScheduleToStartTimeout: 5 * time.Second,
 		RetryPolicy: &RetryPolicy{
 			InitialInterval:    time.Second,
